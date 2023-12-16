@@ -5,7 +5,7 @@ use std::{
 	env, fs,
 	io::{self, Write},
 	path::PathBuf,
-	process::{Command, Stdio},
+	process::{self, Command, Stdio},
 };
 
 macro_rules! quit {
@@ -102,5 +102,5 @@ fn main() {
 		let child_stdin = child.stdin.as_mut().unwrap();
 		child_stdin.write_all(cmd.as_bytes()).unwrap();
 	}
-	child.wait().unwrap();
+	process::exit(child.wait().unwrap().code().unwrap_or(1))
 }

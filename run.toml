@@ -2,3 +2,6 @@
 dev = "cargo run"
 build = "cargo build"
 build-release = "cargo build --release"
+
+# this is an example run.toml file.
+# i wouldn't use run with rust, cargo is sufficient
