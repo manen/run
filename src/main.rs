@@ -1,8 +1,10 @@
+use anyhow::anyhow;
 use serde::Deserialize;
 use std::{
 	collections::HashMap,
 	env, fs,
 	io::{self, Write},
+	path::PathBuf,
 	process::{Command, Stdio},
 };
 
@@ -26,6 +28,14 @@ macro_rules! quit_unwrap {
 			}
 		}
 	}};
+	($result:expr) => {{
+		match $result {
+			Ok(a) => a,
+			Err(a) => {
+				quit!("{a}");
+			}
+		}
+	}};
 	(opt $opt:expr, $msg:expr) => {{
 		match $opt {
 			Some(a) => a,
@@ -39,13 +49,28 @@ struct Config {
 	scripts: HashMap<String, String>,
 }
 
-fn main() {
-	let mut cwd = env::current_dir().unwrap();
-	cwd.push("run.toml");
+fn config(mut dir: PathBuf) -> anyhow::Result<(Config, PathBuf)> {
+	if dir.ancestors().count() == 1 {
+		return Err(anyhow!("couldn't find a run.toml file"));
+	}
+	let path = dir.join("run.toml");
+	let text = match fs::read_to_string(&path) {
+		Ok(a) => a,
+		Err(a) => match a.kind() {
+			io::ErrorKind::NotFound => {
+				dir.pop();
+				return config(dir);
+			}
+			_ => return Err(a.into()),
+		},
+	};
 
-	// read run.toml
-	let file: String = quit_unwrap!(fs::read_to_string(cwd), "couldn't read run.toml");
-	let cfg: Config = quit_unwrap!(toml::from_str(&file), "couldn't parse run.toml");
+	let cfg: Config = toml::from_str(&text)?;
+	Ok((cfg, dir))
+}
+
+fn main() {
+	let (cfg, cwd) = quit_unwrap!(config(env::current_dir().unwrap()));
 
 	// parse args
 	let mut args = env::args();
@@ -62,12 +87,15 @@ fn main() {
 		Some(a) => a,
 	};
 	let cmd = format!("{cmd} {pass_args}");
+
+	// launch child process
 	let mut child = Command::new(quit_unwrap!(opt
 		pathsearch::find_executable_in_path("bash"),
 		"install bash to use run"
 	))
 	.stdin(Stdio::piped())
 	.stdout(io::stdout())
+	.current_dir(&cwd)
 	.spawn()
 	.unwrap();
 	{

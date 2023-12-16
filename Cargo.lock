@@ -74,6 +74,7 @@ dependencies = [
 name = "run"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "pathsearch",
  "serde",
  "toml",
