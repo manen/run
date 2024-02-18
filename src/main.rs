@@ -1,52 +1,23 @@
-use anyhow::anyhow;
+use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::{
 	collections::HashMap,
 	env, fs,
-	io::{self, Write},
+	io::{self},
 	path::PathBuf,
-	process::{self, Command, Stdio},
 };
 
-macro_rules! quit {
-	($($arg:tt)*) => {{
-		eprintln!($($arg)*);
-		::std::process::exit(1);
-	}};
-}
-macro_rules! quit_unwrap {
-	($result:expr, $msg:expr) => {{
-		match $result {
-			Ok(a) => a,
-			Err(a) => {
-				let debug = if cfg!(debug_assertions) {
-					format!("{a}\n")
-				} else {
-					String::new()
-				};
-				quit!("{debug}{}", $msg);
-			}
-		}
-	}};
-	($result:expr) => {{
-		match $result {
-			Ok(a) => a,
-			Err(a) => {
-				quit!("{a}");
-			}
-		}
-	}};
-	(opt $opt:expr, $msg:expr) => {{
-		match $opt {
-			Some(a) => a,
-			None => quit!("{}", $msg),
-		}
-	}};
-}
-
-#[derive(Deserialize)]
+#[derive(Debug, Clone, Deserialize)]
+/// the run.toml file is a lot like a tree; it has branches, that is how you define subcommands
 struct Config {
-	scripts: HashMap<String, String>,
+	#[serde(flatten)]
+	cfg: HashMap<String, Entry>,
+}
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum Entry {
+	Command(String),
+	Config(Config),
 }
 
 fn config(mut dir: PathBuf) -> anyhow::Result<(Config, PathBuf)> {
@@ -68,39 +39,30 @@ fn config(mut dir: PathBuf) -> anyhow::Result<(Config, PathBuf)> {
 	let cfg: Config = toml::from_str(&text)?;
 	Ok((cfg, dir))
 }
+fn cfg_search<'a, A: Iterator<Item = String>>(cfg: &'a Config, mut args: A) -> Result<&str> {
+	let arg = args.next().unwrap_or_else(|| "index".to_owned());
+	let entry = cfg
+		.cfg
+		.get(&arg)
+		.ok_or_else(|| anyhow!("couldn't find {arg} in config ({cfg:?})"))?;
 
-fn main() {
-	let (cfg, cwd) = quit_unwrap!(config(env::current_dir().unwrap()));
+	match entry {
+		Entry::Command(cmd) => Ok(cmd.as_str()),
+		Entry::Config(child_cfg) => cfg_search(child_cfg, args),
+	}
+}
+
+fn main() -> anyhow::Result<()> {
+	let (cfg, cwd) = config(env::current_dir().unwrap())?;
 
 	// parse args
 	let mut args = env::args();
-	let arg0 = args.next().unwrap();
-	let script = match args.next() {
-		None => quit!("usage: {arg0} <script>"),
-		Some(a) => a,
-	};
-	let pass_args = args.collect::<Vec<_>>().join(" ");
+	let _arg0 = args.next().unwrap();
 
-	// read command from run.toml, append passed args
-	let cmd = match cfg.scripts.get(&script) {
-		None => quit!("no script called {script} in run.toml"),
-		Some(a) => a,
-	};
-	let cmd = format!("{cmd} {pass_args}");
+	// run bash command
+	let cmd = cfg_search(&cfg, args)?;
+	let out = bash::run_with_cwd(&cmd, &cwd)?;
+	println!("{out}");
 
-	// launch child process
-	let mut child = Command::new(quit_unwrap!(opt
-		pathsearch::find_executable_in_path("bash"),
-		"install bash to use run"
-	))
-	.stdin(Stdio::piped())
-	.stdout(io::stdout())
-	.current_dir(&cwd)
-	.spawn()
-	.unwrap();
-	{
-		let child_stdin = child.stdin.as_mut().unwrap();
-		child_stdin.write_all(cmd.as_bytes()).unwrap();
-	}
-	process::exit(child.wait().unwrap().code().unwrap_or(1))
+	Ok(())
 }

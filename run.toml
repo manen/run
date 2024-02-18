@@ -1,7 +1,9 @@
-[scripts]
-dev = "cargo run"
-build = "cargo build"
-build-release = "cargo build --release"
+index = "echo 'running by default; see run.toml for more'; target/debug/run build"
+
+[build]
+index = "target/debug/run build debug"
+debug = "cargo build"
+release = "cargo build --release"
 
 # this is an example run.toml file.
-# i wouldn't use run with rust, cargo is sufficient
+# i wouldn't use run with single-crate projects, cargo is sufficient
