@@ -8,7 +8,7 @@ use std::{
 };
 
 #[derive(Debug, Clone, Deserialize)]
-/// the run.toml file is a lot like a tree; it has branches, that is how you define subcommands
+/// the run.toml file is like a tree; it has branches, that is how you define subcommands
 struct Config {
 	#[serde(flatten)]
 	cfg: HashMap<String, Entry>,
@@ -39,7 +39,7 @@ fn config(mut dir: PathBuf) -> anyhow::Result<(Config, PathBuf)> {
 	let cfg: Config = toml::from_str(&text)?;
 	Ok((cfg, dir))
 }
-fn cfg_search<'a, A: Iterator<Item = String>>(cfg: &'a Config, mut args: A) -> Result<&str> {
+fn cfg_search<A: Iterator<Item = String>>(cfg: &Config, mut args: A) -> Result<&str> {
 	let arg = args.next().unwrap_or_else(|| "index".to_owned());
 	let entry = cfg
 		.cfg
@@ -59,10 +59,20 @@ fn main() -> anyhow::Result<()> {
 	let mut args = env::args();
 	let _arg0 = args.next().unwrap();
 
-	// run bash command
-	let cmd = cfg_search(&cfg, args)?;
-	let out = bash::run_with_cwd(&cmd, &cwd)?;
-	println!("{out}");
+	let capture_io = std::env::var("RUN_CAPTURE_IO")
+		.map(|s| match s.as_ref() {
+			"0" => false,
+			_ => true,
+		})
+		.unwrap_or_default();
 
+	let cmd = cfg_search(&cfg, args)?;
+
+	if capture_io {
+		let out = bash::capture_io::run_with_cwd(&cmd, &cwd)?;
+		println!("{out}");
+	} else {
+		bash::inherit::run_with_cwd(&cmd, &cwd)?;
+	};
 	Ok(())
 }
